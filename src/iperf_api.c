@@ -1192,6 +1192,7 @@ iperf_parse_arguments(struct iperf_test *test, int argc, char **argv)
         {"mptcp", no_argument, NULL, 'm'},
 #endif
         {"gsro", no_argument, NULL, OPT_GSRO},
+        {"imix", no_argument, NULL, OPT_IMIX},
         {"debug", optional_argument, NULL, 'd'},
         {"help", no_argument, NULL, 'h'},
         {NULL, 0, NULL, 0}
@@ -1799,19 +1800,27 @@ iperf_parse_arguments(struct iperf_test *test, int argc, char **argv)
 		break;
 #endif
             case OPT_GSRO:
-		/* Enable GSO/GRO which is disabled by default */
-		/* Flag is available regardless of local support to allow client to request server to use it */
-		gsro_flag = 1;
-		test->settings->gso = 1;
-		test->settings->gro = 1;
-                break;
-	    case 'h':
-		usage_long(stdout);
-		exit(0);
+        /* Enable GSO/GRO which is disabled by default */
+        /* Flag is available regardless of local support to allow client to request server to use it */
+        gsro_flag = 1;
+        test->settings->gso = 1;
+        test->settings->gro = 1;
+        break;
+
+            case OPT_IMIX:
+        /* Enable IMIX mode (UDP client) */
+        test->settings->imix = 1;
+        client_flag = 1;
+        break;
+
+        case 'h':
+        usage_long(stdout);
+        exit(0);
+
             default:
-                fprintf(stderr, "\n");
-                usage();
-                exit(1);
+        fprintf(stderr, "\n");
+        usage();
+        exit(1);
         }
     }
 
@@ -3475,6 +3484,7 @@ iperf_defaults(struct iperf_test *testp)
     testp->settings->gso_bf_size = GSO_BF_MAX_SIZE;
     testp->settings->gro = 0;  /* Disable GRO by default, enabled via --gsro */
     testp->settings->gro_bf_size = GRO_BF_MAX_SIZE;
+    testp->settings->imix = 0;
     testp->settings->mss = 0;
     testp->settings->bytes = 0;
     testp->settings->blocks = 0;
@@ -4954,6 +4964,10 @@ iperf_free_stream(struct iperf_stream *sp)
     free(sp->result);
     if (sp->send_timer != NULL)
 	tmr_cancel(sp->send_timer);
+    if (sp->imix_state != NULL) {
+        imix_free(sp->imix_state);
+        sp->imix_state = NULL;
+    }
     free(sp);
 }
 
@@ -4994,6 +5008,8 @@ iperf_new_stream(struct iperf_test *test, int s, int sender)
     }
 
     memset(sp, 0, sizeof(struct iperf_stream));
+
+    sp->imix_state = NULL;
 
     sp->sender = sender;
     sp->test = test;

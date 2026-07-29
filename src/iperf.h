@@ -55,6 +55,7 @@
 #include "cjson.h"
 #include "iperf_time.h"
 #include "portable_endian.h"
+#include "imix.h"
 
 #if defined(HAVE_SSL)
 #include <openssl/bio.h>
@@ -199,6 +200,7 @@ struct iperf_settings
     int       gso_bf_size;
     int       gro;
     int       gro_bf_size;
+    int       imix; /* 1 = enable IMIX (UDP only) */
 };
 
 struct iperf_test;
@@ -249,6 +251,7 @@ struct iperf_stream
 
     struct sockaddr_storage local_addr;
     struct sockaddr_storage remote_addr;
+    imix_state_t *imix_state;       /** per-stream IMIX state **/
 
     int       (*rcv) (struct iperf_stream * stream);
     int       (*snd) (struct iperf_stream * stream);
