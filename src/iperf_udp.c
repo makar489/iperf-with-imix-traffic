@@ -51,6 +51,7 @@
 #include "timer.h"
 #include "net.h"
 #include "cjson.h"
+#include "imix.h"
 
 /* iperf_udp_recv
  *
@@ -256,6 +257,95 @@ iperf_udp_send(struct iperf_stream *sp)
     char      *dgram_buf;
     char      *dgram_buf_end;
     const int min_pkt_size = sizeof(uint32_t) * 3; /* sec + usec + pcount (32-bit) */
+	struct iperf_test *test = sp->test;
+	int64_t    total_sent = 0;
+
+	    /* If IMIX mode requested (UDP only) and GSO is NOT used — handle specially */
+    if (test->settings->imix && !test->settings->gso) {
+
+        /* Ensure per-stream IMIX state exists (allocate via imix_init) */
+        if (sp->imix_state == NULL) {
+            /* seed: mix current time with pointer to stream to get per-stream variability */
+            unsigned int seed = (unsigned int) time(NULL) ^ (unsigned int)(uintptr_t)sp;
+            sp->imix_state = (void *) imix_init(seed);
+        }
+
+        /* buffer / sizes */
+        dgram_buf = sp->buffer;
+        buf_sz = size = sp->settings->blksize;
+        dgram_buf_end = sp->buffer + buf_sz;
+
+        while (buf_sz > 0 && dgram_buf < dgram_buf_end) {
+            int pkt_len;
+
+            /* get desired IMIX packet payload/total length from the IMIX sequence */
+            if (sp->imix_state) {
+                pkt_len = (int) imix_next_size((imix_state_t *) sp->imix_state);
+            } else {
+                /* fallback to a safe value (header + small payload) */
+                pkt_len = min_pkt_size;
+            }
+
+            /* make sure we always have space for our timestamp/pcount header */
+            if (pkt_len < min_pkt_size)
+                pkt_len = min_pkt_size;
+
+            /* don't exceed remaining buffer */
+            if (pkt_len > buf_sz)
+                pkt_len = buf_sz;
+
+            iperf_time_now(&before);
+            ++sp->packet_count;
+
+            if (sp->test->udp_counters_64bit) {
+                uint32_t sec, usec;
+                uint64_t pcount;
+                sec = htonl(before.secs);
+                usec = htonl(before.usecs);
+                pcount = htobe64(sp->packet_count);
+                memcpy(dgram_buf, &sec, sizeof(sec));
+                memcpy(dgram_buf + 4, &usec, sizeof(usec));
+                memcpy(dgram_buf + 8, &pcount, sizeof(pcount));
+            } else {
+                uint32_t sec, usec, pcount;
+                sec = htonl(before.secs);
+                usec = htonl(before.usecs);
+                pcount = htonl((uint32_t)sp->packet_count);
+                memcpy(dgram_buf, &sec, sizeof(sec));
+                memcpy(dgram_buf + 4, &usec, sizeof(usec));
+                memcpy(dgram_buf + 8, &pcount, sizeof(pcount));
+            }
+
+            ssize_t n = Nwrite(sp->socket, dgram_buf, (size_t)pkt_len, Pudp);
+            if (n <= 0) {
+                --sp->packet_count;
+                if (n < 0) {
+                    if (n == NET_SOFTERROR && sp->test->debug_level >= DEBUG_LEVEL_INFO)
+                        printf("UDP send failed on NET_SOFTERROR. errno=%s\n", strerror(errno));
+                    return (int)n;
+                }
+                return NET_SOFTERROR;
+            }
+
+            total_sent += n;
+            dgram_buf += pkt_len;
+            buf_sz -= pkt_len;
+
+            cnt++;
+            if (sp->test->debug_level >= DEBUG_LEVEL_DEBUG)
+                printf("%d (IMIX) sent %zd bytes, remaining %d\n", cnt, n, buf_sz);
+        }
+
+        sp->result->bytes_sent += total_sent;
+        sp->result->bytes_sent_this_interval += total_sent;
+
+        if (sp->test->debug_level >= DEBUG_LEVEL_DEBUG)
+            printf("sent %" PRId64 " bytes (IMIX), total %" PRIu64 "\n", total_sent, sp->result->bytes_sent);
+
+        return (int) total_sent;
+    }
+
+    /* ------- Original behaviour (GSO or single packet UDP) ------- */
 
     /* Configure loop parameters based on GSO availability */
     if (sp->test->settings->gso) {
