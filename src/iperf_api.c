@@ -1824,6 +1824,21 @@ iperf_parse_arguments(struct iperf_test *test, int argc, char **argv)
         }
     }
 
+    if (test->settings->imix) {
+        /* IMIX operates only over UDP. */
+        if (test->protocol->id != Pudp) {
+            warning("--imix is only supported with UDP (-u)");
+            return -1;
+        }
+        /* IMIX and GSO/GRO (gsro) are mutually exclusive. */
+        if (test->settings->gso || test->settings->gro) {
+            warning("--imix and --gsro are mutually exclusive");
+            return -1;
+        }
+
+        test->settings->blksize = 1472;
+    }
+
     /* Check flag / role compatibility. */
     if (test->role == 'c' && server_flag) {
         i_errno = IESERVERONLY;
@@ -2488,6 +2503,10 @@ send_parameters(struct iperf_test *test)
 	    cJSON_AddNumberToObject(j, "gso_bf_size", test->settings->gso_bf_size);
 	    cJSON_AddNumberToObject(j, "gro", test->settings->gro);
 	    cJSON_AddNumberToObject(j, "gro_bf_size", test->settings->gro_bf_size);
+
+	    if (test->settings->imix) {
+	        cJSON_AddNumberToObject(j, "imix", test->settings->imix);
+	    }
 	}
 	if (test->settings->tos)
 	    cJSON_AddNumberToObject(j, "TOS", test->settings->tos);
@@ -2696,6 +2715,10 @@ get_parameters(struct iperf_test *test)
 	        test->settings->gso_bf_size = j_p->valueint;
             }
         }
+
+    if ((j_p = iperf_cJSON_GetObjectItemType(j, "imix", cJSON_Number)) != NULL){
+        test->settings->imix = j_p->valueint;
+    }
 
 	/* Backward-compatibility: If client didn't send GSO params, derive from blksize. */
 	if (test->protocol->id == Pudp && test->settings->gso == 1 && test->settings->gso_dg_size == 0) {
@@ -5076,6 +5099,16 @@ iperf_new_stream(struct iperf_test *test, int s, int sender)
     else
         ret = readentropy(sp->buffer, test->settings->blksize);
 
+    /* Initialize IMIX */
+    if (sp->settings->imix && sp->sender) {
+
+        sp->imix_state = imix_init((unsigned int)(time(NULL) + sp->id));
+        if (!sp->imix_state) {
+            i_errno = IECREATESTREAM;
+            goto err_exit_close_diskfile;
+        }
+    }
+
     if ((ret < 0) || (iperf_init_stream(sp, test) < 0)) {
         goto err_exit_close_diskfile;
     }
@@ -5093,6 +5126,9 @@ err_exit_munmap_buffer:
 err_exit_close_buffer:
     close(sp->buffer_fd);
 err_exit_free_result:
+    if (sp->imix_state) {
+        imix_free(sp->imix_state);
+    }
     free(sp->result);
 err_exit_free_sp:
     free(sp);
