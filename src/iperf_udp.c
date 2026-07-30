@@ -93,8 +93,13 @@ iperf_udp_recv(struct iperf_stream *sp)
     } else {
 	/* GRO disabled or unavailable - use normal UDP receive and single packet size */
 	r = Nrecv_no_select(sp->socket, sp->buffer, size, Pudp, sock_opt);
-	dgram_sz = sp->settings->blksize;
-	buf_sz = r;
+    /* Dynamic packet size for IMIX */
+    if (sp->settings->imix) {
+    	dgram_sz = r;
+    } else {
+    	dgram_sz = sp->settings->blksize;
+    }
+    buf_sz = r;
     }
 
     /*
@@ -559,6 +564,12 @@ iperf_udp_accept(struct iperf_test *test)
         return -1;
     }
 
+	if (test->settings->socket_bufsize == 0) {
+		int opt = 262144; /* 256 KB */
+		setsockopt(s, SOL_SOCKET, SO_RCVBUF, &opt, sizeof(opt));
+		setsockopt(s, SOL_SOCKET, SO_SNDBUF, &opt, sizeof(opt));
+	}
+
     /* Check and set socket buffer sizes */
     rc = iperf_udp_buffercheck(test, s);
     if (rc < 0)
@@ -685,6 +696,12 @@ iperf_udp_connect(struct iperf_test *test)
         i_errno = IESTREAMCONNECT;
         return -1;
     }
+
+	if (test->settings->socket_bufsize == 0) {
+		int opt = 262144; /* 256 KB */
+		setsockopt(s, SOL_SOCKET, SO_RCVBUF, &opt, sizeof(opt));
+		setsockopt(s, SOL_SOCKET, SO_SNDBUF, &opt, sizeof(opt));
+	}
 
     /* Check and set socket buffer sizes */
     rc = iperf_udp_buffercheck(test, s);
