@@ -564,12 +564,6 @@ iperf_udp_accept(struct iperf_test *test)
         return -1;
     }
 
-	if (test->settings->socket_bufsize == 0) {
-		int opt = 262144; /* 256 KB */
-		setsockopt(s, SOL_SOCKET, SO_RCVBUF, &opt, sizeof(opt));
-		setsockopt(s, SOL_SOCKET, SO_SNDBUF, &opt, sizeof(opt));
-	}
-
     /* Check and set socket buffer sizes */
     rc = iperf_udp_buffercheck(test, s);
     if (rc < 0)
@@ -696,12 +690,6 @@ iperf_udp_connect(struct iperf_test *test)
         i_errno = IESTREAMCONNECT;
         return -1;
     }
-
-	if (test->settings->socket_bufsize == 0) {
-		int opt = 262144; /* 256 KB */
-		setsockopt(s, SOL_SOCKET, SO_RCVBUF, &opt, sizeof(opt));
-		setsockopt(s, SOL_SOCKET, SO_SNDBUF, &opt, sizeof(opt));
-	}
 
     /* Check and set socket buffer sizes */
     rc = iperf_udp_buffercheck(test, s);

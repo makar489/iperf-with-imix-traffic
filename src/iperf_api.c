@@ -1836,8 +1836,9 @@ iperf_parse_arguments(struct iperf_test *test, int argc, char **argv)
             return -1;
         }
 
-        test->settings->blksize = 1472;
-        blksize = 1472;
+        test->settings->blksize = 1600;
+        blksize = 1600;
+        test->settings->socket_bufsize = 1048576;
     }
 
     /* Check flag / role compatibility. */
