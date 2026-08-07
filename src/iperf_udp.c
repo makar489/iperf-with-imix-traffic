@@ -75,6 +75,9 @@ iperf_udp_recv(struct iperf_stream *sp)
     char      *dgram_buf_end;
     const int min_pkt_size = sizeof(uint32_t) * 3; /* sec + usec + pcount (32-bit) */
 
+	if (sp->test->settings->imix && sp->imix_state) {
+		sp->test->settings->gso = 0;
+	}
 #if defined(HAVE_MSG_TRUNC)
     // UDP recv() with MSG_TRUNC reads only the size bytes, but return the length of the full packet
     if (sp->test->settings->skip_rx_copy) {
@@ -90,16 +93,16 @@ iperf_udp_recv(struct iperf_stream *sp)
 	/* Use negotiated block size for GRO segment stride to ensure correct parsing. */
 	dgram_sz = sp->settings->blksize;
 	buf_sz = r;
-    } else {
-	/* GRO disabled or unavailable - use normal UDP receive and single packet size */
-	r = Nrecv_no_select(sp->socket, sp->buffer, size, Pudp, sock_opt);
-    /* Dynamic packet size for IMIX */
-    if (sp->settings->imix) {
+    } else if (sp->test->settings->imix){
+    	r = recv(sp->socket, sp->buffer, size, sock_opt);
+    	/* For any UDP datagram (including IMIX), the actual size is the number of bytes read. */
     	dgram_sz = r;
+    	buf_sz = r;
     } else {
+    	/* GRO disabled or unavailable - use normal UDP receive and single packet size */
+    	r = Nrecv_no_select(sp->socket, sp->buffer, size, Pudp, sock_opt);
     	dgram_sz = sp->settings->blksize;
-    }
-    buf_sz = r;
+    	buf_sz = r;
     }
 
     /*
@@ -131,6 +134,11 @@ iperf_udp_recv(struct iperf_stream *sp)
 	dgram_buf = sp->buffer;
 	dgram_buf_end = sp->buffer + buf_sz;
 
+    	if (!sp->settings->gso) {
+    		buf_sz = dgram_sz;
+    		dgram_buf_end = sp->buffer + buf_sz;
+    	}
+
 	while (buf_sz >= dgram_sz && dgram_buf + dgram_sz <= dgram_buf_end) {
 
 	    /* Ensure we have enough bytes for the packet header */
@@ -161,6 +169,8 @@ iperf_udp_recv(struct iperf_stream *sp)
 		sent_time.secs = sec;
 		sent_time.usecs = usec;
 	    }
+		if (sp->test->debug)
+			printf("received packet %" PRIu64 ", size %d bytes\n", pcount, dgram_sz);
 
             /*
              * Try to handle out of order packets.  The way we do this
@@ -264,7 +274,9 @@ iperf_udp_send(struct iperf_stream *sp)
     const int min_pkt_size = sizeof(uint32_t) * 3; /* sec + usec + pcount (32-bit) */
 
 	if (sp->test->settings->imix && sp->imix_state) {
+		sp->test->settings->gso = 0;
 		size = imix_next_size(sp->imix_state);
+		sp->settings->blksize = size;
 
 		if (size < min_pkt_size) {
 			size = min_pkt_size;
@@ -347,7 +359,7 @@ iperf_udp_send(struct iperf_stream *sp)
     }
 
     if (r <= 0) {
-        --sp->packet_count;     /* Don't count messages that no data was sent from them.
+        sp->packet_count -= cnt;     /* Don't count messages that no data was sent from them.
                                  * Allows "resending" a massage with the same numbering */
         if (r < 0) {
             if (r == NET_SOFTERROR && sp->test->debug_level >= DEBUG_LEVEL_INFO)

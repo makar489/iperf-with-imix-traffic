@@ -2720,6 +2720,9 @@ get_parameters(struct iperf_test *test)
 
     if ((j_p = iperf_cJSON_GetObjectItemType(j, "imix", cJSON_Number)) != NULL){
         test->settings->imix = j_p->valueint;
+        if (test->settings->imix) {
+            test->settings->blksize = 1600;
+        }
     }
 
 	/* Backward-compatibility: If client didn't send GSO params, derive from blksize. */

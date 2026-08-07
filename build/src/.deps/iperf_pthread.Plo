@@ -1,0 +1,4 @@
+iperf_pthread.lo: \
+  /Users/makar.po/CLionProjects/iperf-with-imix-traffic/src/iperf_pthread.c \
+  iperf_config.h
+iperf_config.h:
