@@ -1825,14 +1825,14 @@ iperf_parse_arguments(struct iperf_test *test, int argc, char **argv)
     }
 
     if (test->settings->imix) {
-        /* IMIX operates only over UDP. */
-        if (test->protocol->id != Pudp) {
-            warning("--imix is only supported with UDP ");
-            return -1;
-        }
         /* IMIX and GSO/GRO (gsro) are mutually exclusive. */
         if (test->settings->gso || test->settings->gro) {
             warning("--imix and --gsro are mutually exclusive");
+            return -1;
+        }
+        /* IMIX and -l (length) are mutually exclusive. */
+        if (blksize != 0) {
+            warning("--imix and -l are mutually exclusive");
             return -1;
         }
 

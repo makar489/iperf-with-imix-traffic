@@ -44,6 +44,7 @@
 #include "iperf_util.h"
 #include "net.h"
 #include "cjson.h"
+#include "imix.h"
 
 #if defined(HAVE_FLOWLABEL)
 #include "flowlabel.h"
@@ -94,8 +95,12 @@ iperf_tcp_send(struct iperf_stream *sp)
 {
     int r;
 
-    if (!sp->pending_size)
-	      sp->pending_size = sp->settings->blksize;
+	if (!sp->pending_size) {
+		if (sp->test->settings->imix && sp->imix_state) {
+			sp->settings->blksize = imix_next_size(sp->imix_state);
+		}
+		sp->pending_size = sp->settings->blksize;
+	}
 
     if (sp->test->zerocopy)
 	      r = Nsendfile(sp->buffer_fd, sp->socket, sp->buffer, sp->pending_size);
@@ -232,7 +237,7 @@ iperf_tcp_listen(struct iperf_test *test)
             return -1;
         }
 
-        if (test->no_delay) {
+        if (test->no_delay || test->settings->imix) {
             opt = 1;
             if (setsockopt(s, IPPROTO_TCP, TCP_NODELAY, &opt, sizeof(opt)) < 0) {
 		saved_errno = errno;
@@ -414,7 +419,7 @@ iperf_tcp_connect(struct iperf_test *test)
     }
 
     /* Set socket options */
-    if (test->no_delay) {
+    if (test->no_delay || test->settings->imix) {
         opt = 1;
         if (setsockopt(s, IPPROTO_TCP, TCP_NODELAY, &opt, sizeof(opt)) < 0) {
 	    saved_errno = errno;
